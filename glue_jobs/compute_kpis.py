@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 
 def enrich_streams_with_songs(streams_df: DataFrame, songs_df: DataFrame) -> DataFrame:
@@ -74,4 +75,86 @@ def compute_daily_genre_kpis_records(records: list[dict]) -> list[dict]:
                 "avg_listening_time_per_user_seconds": avg,
             }
         )
+    return out
+
+
+def compute_top_3_songs_by_genre(enriched_df: DataFrame) -> DataFrame:
+    """Compute top 3 songs per (stream_date, genre) by listen count."""
+    counts = enriched_df.groupBy("stream_date", "genre", "track_id", "track_name", "artists").agg(
+        F.count("*").alias("listen_count")
+    )
+    w = Window.partitionBy("stream_date", "genre").orderBy(
+        F.col("listen_count").desc(), F.col("track_id").asc()
+    )
+    return (
+        counts.withColumn("rank", F.row_number().over(w))
+        .filter(F.col("rank") <= 3)
+        .select("stream_date", "genre", "rank", "track_id", "track_name", "artists", "listen_count")
+    )
+
+
+def compute_top_5_genres(enriched_df: DataFrame) -> DataFrame:
+    """Compute top 5 genres per stream_date by listen count."""
+    counts = enriched_df.groupBy("stream_date", "genre").agg(F.count("*").alias("listen_count"))
+    w = Window.partitionBy("stream_date").orderBy(
+        F.col("listen_count").desc(), F.col("genre").asc()
+    )
+    return (
+        counts.withColumn("rank", F.row_number().over(w))
+        .filter(F.col("rank") <= 5)
+        .select("stream_date", "rank", "genre", "listen_count")
+    )
+
+
+def compute_top_3_songs_by_genre_records(records: list[dict]) -> list[dict]:
+    """Pure-Python top-3 songs per genre/day helper for deterministic tests."""
+    grouped: dict[tuple[str, str, str, str, str], int] = defaultdict(int)
+    for row in records:
+        key = (
+            row["stream_date"],
+            row["genre"],
+            row["track_id"],
+            row["track_name"],
+            row["artists"],
+        )
+        grouped[key] += 1
+
+    by_partition: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for (stream_date, genre, track_id, track_name, artists), count in grouped.items():
+        by_partition[(stream_date, genre)].append(
+            {
+                "stream_date": stream_date,
+                "genre": genre,
+                "track_id": track_id,
+                "track_name": track_name,
+                "artists": artists,
+                "listen_count": count,
+            }
+        )
+
+    out: list[dict] = []
+    for (stream_date, genre), rows in sorted(by_partition.items()):
+        rows_sorted = sorted(rows, key=lambda r: (-r["listen_count"], r["track_id"]))
+        for i, row in enumerate(rows_sorted[:3], start=1):
+            out.append({**row, "rank": i})
+    return out
+
+
+def compute_top_5_genres_records(records: list[dict]) -> list[dict]:
+    """Pure-Python top-5 genres per day helper for deterministic tests."""
+    grouped: dict[tuple[str, str], int] = defaultdict(int)
+    for row in records:
+        grouped[(row["stream_date"], row["genre"])] += 1
+
+    by_day: dict[str, list[dict]] = defaultdict(list)
+    for (stream_date, genre), count in grouped.items():
+        by_day[stream_date].append(
+            {"stream_date": stream_date, "genre": genre, "listen_count": count}
+        )
+
+    out: list[dict] = []
+    for stream_date, rows in sorted(by_day.items()):
+        rows_sorted = sorted(rows, key=lambda r: (-r["listen_count"], r["genre"]))
+        for i, row in enumerate(rows_sorted[:5], start=1):
+            out.append({**row, "rank": i})
     return out
