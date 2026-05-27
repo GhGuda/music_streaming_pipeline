@@ -72,6 +72,18 @@ module "lambda" {
   tags                = local.tags
 }
 
+module "glue" {
+  source                = "../../modules/glue"
+  name_prefix           = var.project_name
+  environment           = var.environment
+  glue_role_arn         = module.iam.glue_role_arn
+  raw_bucket_name       = module.s3.raw_bucket_name
+  processed_bucket_name = module.s3.processed_bucket_name
+  scripts_bucket_name   = module.s3.scripts_bucket_name
+  dynamodb_table_name   = module.dynamodb.table_name
+  tags                  = local.tags
+}
+
 module "step_functions" {
   source                  = "../../modules/step_functions"
   name_prefix             = var.project_name
@@ -79,10 +91,9 @@ module "step_functions" {
   step_functions_role_arn = module.iam.step_functions_role_arn
   asl_template_path       = "${path.root}/../../state_machine/pipeline.asl.json"
 
-  # Glue jobs are not yet provisioned in Terraform, so we wire deterministic names now.
-  validate_job_name = "${var.project_name}-${var.environment}-validate-inputs"
-  compute_job_name  = "${var.project_name}-${var.environment}-compute-kpis"
-  load_job_name     = "${var.project_name}-${var.environment}-load-dynamodb"
+  validate_job_name = module.glue.validate_job_name
+  compute_job_name  = module.glue.compute_job_name
+  load_job_name     = module.glue.load_job_name
 
   scripts_bucket      = module.s3.scripts_bucket_name
   raw_bucket          = module.s3.raw_bucket_name

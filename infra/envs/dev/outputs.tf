@@ -28,6 +28,21 @@ output "dynamodb_table_name" {
   value       = module.dynamodb.table_name
 }
 
+output "glue_validate_job_name" {
+  description = "Glue validate-inputs job name."
+  value       = module.glue.validate_job_name
+}
+
+output "glue_compute_job_name" {
+  description = "Glue compute-kpis job name."
+  value       = module.glue.compute_job_name
+}
+
+output "glue_load_job_name" {
+  description = "Glue load-dynamodb job name."
+  value       = module.glue.load_job_name
+}
+
 output "glue_role_arn" {
   description = "Glue role ARN."
   value       = module.iam.glue_role_arn
