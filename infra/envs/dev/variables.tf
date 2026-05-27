@@ -27,3 +27,9 @@ variable "cost_center" {
   type        = string
   default     = "engineering"
 }
+
+variable "alert_email" {
+  description = "Email for CloudWatch/SNS alert notifications."
+  type        = string
+  default     = "alerts@example.com"
+}

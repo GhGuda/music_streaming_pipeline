@@ -28,6 +28,21 @@ output "dynamodb_table_name" {
   value       = module.dynamodb.table_name
 }
 
+output "glue_validate_job_name" {
+  description = "Glue validate-inputs job name."
+  value       = module.glue.validate_job_name
+}
+
+output "glue_compute_job_name" {
+  description = "Glue compute-kpis job name."
+  value       = module.glue.compute_job_name
+}
+
+output "glue_load_job_name" {
+  description = "Glue load-dynamodb job name."
+  value       = module.glue.load_job_name
+}
+
 output "glue_role_arn" {
   description = "Glue role ARN."
   value       = module.iam.glue_role_arn
@@ -81,4 +96,19 @@ output "eventbridge_dlq_arn" {
 output "eventbridge_dlq_url" {
   description = "EventBridge DLQ URL."
   value       = module.eventbridge.eventbridge_dlq_url
+}
+
+output "alerts_topic_arn" {
+  description = "SNS alerts topic ARN."
+  value       = module.monitoring.alerts_topic_arn
+}
+
+output "sfn_failed_alarm_name" {
+  description = "Step Functions failures alarm name."
+  value       = module.monitoring.sfn_failed_alarm_name
+}
+
+output "eventbridge_dlq_alarm_name" {
+  description = "EventBridge DLQ alarm name."
+  value       = module.monitoring.eventbridge_dlq_alarm_name
 }
