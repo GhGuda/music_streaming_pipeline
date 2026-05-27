@@ -1,0 +1,7 @@
+{
+  "Comment": "TODO: implement pipeline state machine",
+  "StartAt": "Placeholder",
+  "States": {
+    "Placeholder": { "Type": "Succeed" }
+  }
+}
