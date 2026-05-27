@@ -1,1 +1,5 @@
-# TODO: dev tfvars
+aws_region   = "us-east-1"
+project_name = "music-streaming"
+environment  = "dev"
+owner        = "GhGuda"
+cost_center  = "data-engineering"
