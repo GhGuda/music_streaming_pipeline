@@ -37,3 +37,24 @@ module "s3" {
   kms_key_arn = module.kms.key_arn
   tags        = local.tags
 }
+
+module "dynamodb" {
+  source      = "../../modules/dynamodb"
+  name_prefix = var.project_name
+  environment = var.environment
+  kms_key_arn = module.kms.key_arn
+  tags        = local.tags
+}
+
+module "iam" {
+  source                = "../../modules/iam"
+  name_prefix           = var.project_name
+  environment           = var.environment
+  kms_key_arn           = module.kms.key_arn
+  raw_bucket_name       = module.s3.raw_bucket_name
+  processed_bucket_name = module.s3.processed_bucket_name
+  archive_bucket_name   = module.s3.archive_bucket_name
+  scripts_bucket_name   = module.s3.scripts_bucket_name
+  dynamodb_table_arn    = module.dynamodb.table_arn
+  tags                  = local.tags
+}

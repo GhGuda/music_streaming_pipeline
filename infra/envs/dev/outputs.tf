@@ -22,3 +22,28 @@ output "scripts_bucket_name" {
   description = "Scripts/artifacts bucket."
   value       = module.s3.scripts_bucket_name
 }
+
+output "dynamodb_table_name" {
+  description = "DynamoDB KPI table name."
+  value       = module.dynamodb.table_name
+}
+
+output "glue_role_arn" {
+  description = "Glue role ARN."
+  value       = module.iam.glue_role_arn
+}
+
+output "lambda_role_arn" {
+  description = "Lambda role ARN."
+  value       = module.iam.lambda_role_arn
+}
+
+output "step_functions_role_arn" {
+  description = "Step Functions role ARN."
+  value       = module.iam.step_functions_role_arn
+}
+
+output "eventbridge_role_arn" {
+  description = "EventBridge role ARN."
+  value       = module.iam.eventbridge_role_arn
+}
