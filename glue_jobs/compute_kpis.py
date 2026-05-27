@@ -45,6 +45,39 @@ def compute_daily_genre_kpis(enriched_df: DataFrame) -> DataFrame:
     )
 
 
+def compute_top_3_songs_by_genre(enriched_df: DataFrame) -> DataFrame:
+    """Compute top 3 songs per (stream_date, genre) by listen count."""
+    counts = enriched_df.groupBy("stream_date", "genre", "track_id", "track_name", "artists").agg(
+        F.count("*").alias("listen_count")
+    )
+    w = Window.partitionBy("stream_date", "genre").orderBy(
+        F.col("listen_count").desc(), F.col("track_id").asc()
+    )
+    return (
+        counts.withColumn("rank", F.row_number().over(w))
+        .filter(F.col("rank") <= 3)
+        .select("stream_date", "genre", "rank", "track_id", "track_name", "artists", "listen_count")
+    )
+
+
+def compute_top_5_genres(enriched_df: DataFrame) -> DataFrame:
+    """Compute top 5 genres per stream_date by listen count."""
+    counts = enriched_df.groupBy("stream_date", "genre").agg(F.count("*").alias("listen_count"))
+    w = Window.partitionBy("stream_date").orderBy(
+        F.col("listen_count").desc(), F.col("genre").asc()
+    )
+    return (
+        counts.withColumn("rank", F.row_number().over(w))
+        .filter(F.col("rank") <= 5)
+        .select("stream_date", "rank", "genre", "listen_count")
+    )
+
+
+
+
+
+# === Pure-Python equivalents for deterministic unit testing ===
+
 def compute_daily_genre_kpis_records(records: list[dict]) -> list[dict]:
     """Pure-Python equivalent used for lightweight unit testing."""
     grouped: dict[tuple[str, str], dict] = defaultdict(
@@ -76,34 +109,6 @@ def compute_daily_genre_kpis_records(records: list[dict]) -> list[dict]:
             }
         )
     return out
-
-
-def compute_top_3_songs_by_genre(enriched_df: DataFrame) -> DataFrame:
-    """Compute top 3 songs per (stream_date, genre) by listen count."""
-    counts = enriched_df.groupBy("stream_date", "genre", "track_id", "track_name", "artists").agg(
-        F.count("*").alias("listen_count")
-    )
-    w = Window.partitionBy("stream_date", "genre").orderBy(
-        F.col("listen_count").desc(), F.col("track_id").asc()
-    )
-    return (
-        counts.withColumn("rank", F.row_number().over(w))
-        .filter(F.col("rank") <= 3)
-        .select("stream_date", "genre", "rank", "track_id", "track_name", "artists", "listen_count")
-    )
-
-
-def compute_top_5_genres(enriched_df: DataFrame) -> DataFrame:
-    """Compute top 5 genres per stream_date by listen count."""
-    counts = enriched_df.groupBy("stream_date", "genre").agg(F.count("*").alias("listen_count"))
-    w = Window.partitionBy("stream_date").orderBy(
-        F.col("listen_count").desc(), F.col("genre").asc()
-    )
-    return (
-        counts.withColumn("rank", F.row_number().over(w))
-        .filter(F.col("rank") <= 5)
-        .select("stream_date", "rank", "genre", "listen_count")
-    )
 
 
 def compute_top_3_songs_by_genre_records(records: list[dict]) -> list[dict]:
