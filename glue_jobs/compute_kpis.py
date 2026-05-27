@@ -73,10 +73,8 @@ def compute_top_5_genres(enriched_df: DataFrame) -> DataFrame:
     )
 
 
-
-
-
 # === Pure-Python equivalents for deterministic unit testing ===
+
 
 def compute_daily_genre_kpis_records(records: list[dict]) -> list[dict]:
     """Pure-Python equivalent used for lightweight unit testing."""
