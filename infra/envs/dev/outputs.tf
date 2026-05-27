@@ -57,3 +57,13 @@ output "archive_failure_lambda_arn" {
   description = "Archive failure Lambda ARN."
   value       = module.lambda.archive_failure_arn
 }
+
+output "state_machine_arn" {
+  description = "Step Functions state machine ARN."
+  value       = module.step_functions.state_machine_arn
+}
+
+output "state_machine_name" {
+  description = "Step Functions state machine name."
+  value       = module.step_functions.state_machine_name
+}
