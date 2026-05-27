@@ -1,8 +1,10 @@
 """Core KPI computation logic for the Glue PySpark job."""
 
+import argparse
+import json
 from collections import defaultdict
 
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
@@ -161,3 +163,80 @@ def compute_top_5_genres_records(records: list[dict]) -> list[dict]:
         for i, row in enumerate(rows_sorted[:5], start=1):
             out.append({**row, "rank": i})
     return out
+
+
+def _parse_args(argv: list[str]) -> dict[str, str]:
+    try:
+        from awsglue.utils import getResolvedOptions  # type: ignore
+
+        args = getResolvedOptions(
+            argv, ["raw_bucket", "processed_bucket", "stream_key", "stream_dates"]
+        )
+        return {
+            "raw_bucket": args["raw_bucket"],
+            "processed_bucket": args["processed_bucket"],
+            "stream_key": args["stream_key"],
+            "stream_dates": args["stream_dates"],
+        }
+    except Exception:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--raw_bucket", required=True)
+        parser.add_argument("--processed_bucket", required=True)
+        parser.add_argument("--stream_key", required=True)
+        parser.add_argument("--stream_dates", required=True)
+        ns = parser.parse_args(argv[1:])
+        return vars(ns)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import sys
+
+    args = _parse_args(argv or sys.argv)
+    raw_bucket = args["raw_bucket"]
+    processed_bucket = args["processed_bucket"]
+    stream_key = args["stream_key"]
+    stream_dates: list[str] = json.loads(args["stream_dates"])
+
+    spark = SparkSession.builder.appName("compute-kpis").getOrCreate()
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+
+    streams_path = f"s3://{raw_bucket}/{stream_key}"
+    songs_path = f"s3://{raw_bucket}/incoming/songs/songs.csv"
+
+    streams_df = spark.read.option("header", "true").csv(streams_path)
+    songs_df = spark.read.option("header", "true").csv(songs_path)
+
+    enriched = enrich_streams_with_songs(streams_df, songs_df)
+    if stream_dates:
+        enriched = enriched.filter(F.col("stream_date").isin(stream_dates))
+
+    daily = compute_daily_genre_kpis(enriched)
+    top_songs = compute_top_3_songs_by_genre(enriched)
+    top_genres = compute_top_5_genres(enriched)
+
+    (
+        enriched.write.mode("overwrite")
+        .partitionBy("stream_date")
+        .parquet(f"s3://{processed_bucket}/silver/streams_enriched/")
+    )
+    (
+        daily.write.mode("overwrite")
+        .partitionBy("stream_date")
+        .parquet(f"s3://{processed_bucket}/gold/daily_genre_kpis/")
+    )
+    (
+        top_songs.write.mode("overwrite")
+        .partitionBy("stream_date")
+        .parquet(f"s3://{processed_bucket}/gold/top_songs_by_genre/")
+    )
+    (
+        top_genres.write.mode("overwrite")
+        .partitionBy("stream_date")
+        .parquet(f"s3://{processed_bucket}/gold/top_genres/")
+    )
+
+    spark.stop()
+
+
+if __name__ == "__main__":
+    main()
