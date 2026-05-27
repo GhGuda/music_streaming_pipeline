@@ -47,3 +47,13 @@ output "eventbridge_role_arn" {
   description = "EventBridge role ARN."
   value       = module.iam.eventbridge_role_arn
 }
+
+output "archive_success_lambda_arn" {
+  description = "Archive success Lambda ARN."
+  value       = module.lambda.archive_success_arn
+}
+
+output "archive_failure_lambda_arn" {
+  description = "Archive failure Lambda ARN."
+  value       = module.lambda.archive_failure_arn
+}

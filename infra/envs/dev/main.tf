@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.5"
+    }
   }
 }
 
@@ -57,4 +61,13 @@ module "iam" {
   scripts_bucket_name   = module.s3.scripts_bucket_name
   dynamodb_table_arn    = module.dynamodb.table_arn
   tags                  = local.tags
+}
+
+module "lambda" {
+  source              = "../../modules/lambda"
+  name_prefix         = var.project_name
+  environment         = var.environment
+  lambda_role_arn     = module.iam.lambda_role_arn
+  archive_bucket_name = module.s3.archive_bucket_name
+  tags                = local.tags
 }
