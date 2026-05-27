@@ -103,3 +103,16 @@ module "eventbridge" {
   kms_key_arn          = module.kms.key_arn
   tags                 = local.tags
 }
+
+module "monitoring" {
+  source                        = "../../modules/monitoring"
+  name_prefix                   = var.project_name
+  environment                   = var.environment
+  alert_email                   = var.alert_email
+  state_machine_arn             = module.step_functions.state_machine_arn
+  state_machine_name            = module.step_functions.state_machine_name
+  archive_success_function_name = "${var.project_name}-${var.environment}-archive-success"
+  archive_failure_function_name = "${var.project_name}-${var.environment}-archive-failure"
+  eventbridge_dlq_name          = "${var.project_name}-${var.environment}-eb-dlq"
+  tags                          = local.tags
+}

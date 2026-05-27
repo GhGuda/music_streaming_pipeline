@@ -82,3 +82,18 @@ output "eventbridge_dlq_url" {
   description = "EventBridge DLQ URL."
   value       = module.eventbridge.eventbridge_dlq_url
 }
+
+output "alerts_topic_arn" {
+  description = "SNS alerts topic ARN."
+  value       = module.monitoring.alerts_topic_arn
+}
+
+output "sfn_failed_alarm_name" {
+  description = "Step Functions failures alarm name."
+  value       = module.monitoring.sfn_failed_alarm_name
+}
+
+output "eventbridge_dlq_alarm_name" {
+  description = "EventBridge DLQ alarm name."
+  value       = module.monitoring.eventbridge_dlq_alarm_name
+}
