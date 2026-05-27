@@ -71,3 +71,35 @@ module "lambda" {
   archive_bucket_name = module.s3.archive_bucket_name
   tags                = local.tags
 }
+
+module "step_functions" {
+  source                  = "../../modules/step_functions"
+  name_prefix             = var.project_name
+  environment             = var.environment
+  step_functions_role_arn = module.iam.step_functions_role_arn
+  asl_template_path       = "${path.root}/../../state_machine/pipeline.asl.json"
+
+  # Glue jobs are not yet provisioned in Terraform, so we wire deterministic names now.
+  validate_job_name = "${var.project_name}-${var.environment}-validate-inputs"
+  compute_job_name  = "${var.project_name}-${var.environment}-compute-kpis"
+  load_job_name     = "${var.project_name}-${var.environment}-load-dynamodb"
+
+  scripts_bucket      = module.s3.scripts_bucket_name
+  raw_bucket          = module.s3.raw_bucket_name
+  processed_bucket    = module.s3.processed_bucket_name
+  dynamodb_table      = module.dynamodb.table_name
+  archive_success_arn = module.lambda.archive_success_arn
+  archive_failure_arn = module.lambda.archive_failure_arn
+  tags                = local.tags
+}
+
+module "eventbridge" {
+  source               = "../../modules/eventbridge"
+  name_prefix          = var.project_name
+  environment          = var.environment
+  raw_bucket_name      = module.s3.raw_bucket_name
+  state_machine_arn    = module.step_functions.state_machine_arn
+  eventbridge_role_arn = module.iam.eventbridge_role_arn
+  kms_key_arn          = module.kms.key_arn
+  tags                 = local.tags
+}
