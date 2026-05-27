@@ -92,3 +92,14 @@ module "step_functions" {
   archive_failure_arn = module.lambda.archive_failure_arn
   tags                = local.tags
 }
+
+module "eventbridge" {
+  source               = "../../modules/eventbridge"
+  name_prefix          = var.project_name
+  environment          = var.environment
+  raw_bucket_name      = module.s3.raw_bucket_name
+  state_machine_arn    = module.step_functions.state_machine_arn
+  eventbridge_role_arn = module.iam.eventbridge_role_arn
+  kms_key_arn          = module.kms.key_arn
+  tags                 = local.tags
+}

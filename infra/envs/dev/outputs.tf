@@ -67,3 +67,18 @@ output "state_machine_name" {
   description = "Step Functions state machine name."
   value       = module.step_functions.state_machine_name
 }
+
+output "eventbridge_rule_name" {
+  description = "EventBridge stream upload rule name."
+  value       = module.eventbridge.event_rule_name
+}
+
+output "eventbridge_dlq_arn" {
+  description = "EventBridge DLQ ARN."
+  value       = module.eventbridge.eventbridge_dlq_arn
+}
+
+output "eventbridge_dlq_url" {
+  description = "EventBridge DLQ URL."
+  value       = module.eventbridge.eventbridge_dlq_url
+}
