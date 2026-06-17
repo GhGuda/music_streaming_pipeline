@@ -12,3 +12,5 @@ target-version = ["py310"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# Project root on sys.path so `from glue_jobs.*` and `importlib.import_module("lambda.*")` resolve
+pythonpath = ["."]
