@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Music Streaming KPIs</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Music Streaming Pipeline</p>
+          <h1>KPI Dashboard</h1>
+        </div>
+        <div class="controls">
+          <label>
+            Date
+            <div class="custom-select" id="dateSelect" data-placeholder="Select date"></div>
+          </label>
+          <label>
+            Genre
+            <div class="custom-select" id="genreSelect" data-placeholder="Select genre"></div>
+          </label>
+          <button id="refreshBtn" type="button" title="Refresh data">Refresh</button>
+        </div>
+      </header>
+
+      <section id="status" class="status" aria-live="polite">Loading dashboard data...</section>
+
+      <section class="metric-grid" aria-label="Daily summary">
+        <article class="metric">
+          <span>Listens</span>
+          <strong id="totalListens">-</strong>
+        </article>
+        <article class="metric">
+          <span>Unique listeners</span>
+          <strong id="uniqueListeners">-</strong>
+        </article>
+        <article class="metric">
+          <span>Listening time</span>
+          <strong id="listeningTime">-</strong>
+        </article>
+        <article class="metric">
+          <span>Genres</span>
+          <strong id="genreCount">-</strong>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel wide">
+          <div class="panel-head">
+            <h2>Daily Genre KPIs</h2>
+            <span id="lastUpdated">-</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Genre</th>
+                  <th>Listens</th>
+                  <th>Listeners</th>
+                  <th>Total time</th>
+                  <th>Avg/user</th>
+                </tr>
+              </thead>
+              <tbody id="dailyRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="side-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Top Genres</h2>
+            </div>
+            <ol id="topGenres" class="rank-list"></ol>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Top Songs</h2>
+            </div>
+            <ol id="topSongs" class="rank-list"></ol>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
