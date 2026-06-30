@@ -112,3 +112,18 @@ output "eventbridge_dlq_alarm_name" {
   description = "EventBridge DLQ alarm name."
   value       = module.monitoring.eventbridge_dlq_alarm_name
 }
+
+output "dashboard_url" {
+  description = "Public URL for the KPI dashboard."
+  value       = module.dashboard.dashboard_url
+}
+
+output "dashboard_api_endpoint" {
+  description = "HTTP API endpoint used by the dashboard."
+  value       = module.dashboard.api_endpoint
+}
+
+output "dashboard_bucket_name" {
+  description = "S3 bucket hosting the dashboard assets."
+  value       = module.dashboard.dashboard_bucket_name
+}

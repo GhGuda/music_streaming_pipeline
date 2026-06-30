@@ -89,7 +89,7 @@ module "step_functions" {
   name_prefix             = var.project_name
   environment             = var.environment
   step_functions_role_arn = module.iam.step_functions_role_arn
-  asl_template_path       = "${path.root}/../../state_machine/pipeline.asl.json"
+  asl_template_path       = "${path.root}/../../../state_machine/pipeline.asl.json"
 
   validate_job_name = module.glue.validate_job_name
   compute_job_name  = module.glue.compute_job_name
@@ -126,4 +126,13 @@ module "monitoring" {
   archive_failure_function_name = "${var.project_name}-${var.environment}-archive-failure"
   eventbridge_dlq_name          = "${var.project_name}-${var.environment}-eb-dlq"
   tags                          = local.tags
+}
+
+module "dashboard" {
+  source              = "../../modules/dashboard"
+  name_prefix         = var.project_name
+  environment         = var.environment
+  lambda_role_arn     = module.iam.lambda_role_arn
+  dynamodb_table_name = module.dynamodb.table_name
+  tags                = local.tags
 }

@@ -5,6 +5,33 @@ resource "aws_s3_object" "validate_script" {
   etag   = filemd5("${path.root}/../../../glue_jobs/validate_inputs.py")
 }
 
+data "archive_file" "common_lib" {
+  type        = "zip"
+  output_path = "${path.root}/.terraform/glue_common.zip"
+
+  source {
+    content  = file("${path.root}/../../../glue_jobs/__init__.py")
+    filename = "glue_jobs/__init__.py"
+  }
+
+  source {
+    content  = file("${path.root}/../../../glue_jobs/common/__init__.py")
+    filename = "glue_jobs/common/__init__.py"
+  }
+
+  source {
+    content  = file("${path.root}/../../../glue_jobs/common/logging_utils.py")
+    filename = "glue_jobs/common/logging_utils.py"
+  }
+}
+
+resource "aws_s3_object" "common_lib" {
+  bucket = var.scripts_bucket_name
+  key    = "glue/lib/glue_common.zip"
+  source = data.archive_file.common_lib.output_path
+  etag   = data.archive_file.common_lib.output_md5
+}
+
 resource "aws_s3_object" "compute_script" {
   bucket = var.scripts_bucket_name
   key    = "glue/compute_kpis.py"
@@ -35,6 +62,7 @@ resource "aws_glue_job" "validate_inputs" {
   default_arguments = {
     "--enable-continuous-cloudwatch-log" = "true"
     "--enable-metrics"                   = "true"
+    "--extra-py-files"                   = "s3://${var.scripts_bucket_name}/${aws_s3_object.common_lib.key}"
   }
 
   tags = var.tags
@@ -58,6 +86,7 @@ resource "aws_glue_job" "compute_kpis" {
   default_arguments = {
     "--enable-continuous-cloudwatch-log" = "true"
     "--enable-metrics"                   = "true"
+    "--extra-py-files"                   = "s3://${var.scripts_bucket_name}/${aws_s3_object.common_lib.key}"
     "--raw_bucket"                       = var.raw_bucket_name
     "--processed_bucket"                 = var.processed_bucket_name
   }
@@ -81,8 +110,11 @@ resource "aws_glue_job" "load_dynamodb" {
   default_arguments = {
     "--enable-continuous-cloudwatch-log" = "true"
     "--enable-metrics"                   = "true"
+    "--extra-py-files"                   = "s3://${var.scripts_bucket_name}/${aws_s3_object.common_lib.key}"
     "--processed_bucket"                 = var.processed_bucket_name
     "--dynamodb_table"                   = var.dynamodb_table_name
+    # Python Shell has no Spark/JVM. Use pyarrow to read the Parquet outputs.
+    "--additional-python-modules" = "pyarrow==14.0.2"
   }
 
   tags = var.tags

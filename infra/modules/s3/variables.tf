@@ -18,3 +18,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "force_destroy_buckets" {
+  description = "If true, `terraform destroy` empties versioned buckets before deleting them. Safe for dev/learning; set to false if you ever store data you can't lose."
+  type        = bool
+  default     = true
+}

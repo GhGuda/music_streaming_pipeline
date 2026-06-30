@@ -1,5 +1,6 @@
-aws_region   = "us-east-1"
+aws_region   = "eu-north-1"
 project_name = "music-streaming"
 environment  = "dev"
-owner        = "GhGuda"
+owner        = "Melchizedek Narh"
 cost_center  = "data-engineering"
+alert_email  = "melchizedek.narh@amalitech.com"

@@ -1,28 +1,42 @@
+# Pull the current account ID to suffix bucket names so they're globally unique
+# without depending on someone else's `music-streaming-dev-*` never being taken.
+data "aws_caller_identity" "current" {}
+
 locals {
   base_tags = merge(var.tags, {
     Environment = var.environment
     ManagedBy   = "terraform"
   })
+
+  account_suffix = data.aws_caller_identity.current.account_id
+  bucket_base    = "${var.name_prefix}-${var.environment}"
 }
 
+# force_destroy = true lets `terraform destroy` empty versioned buckets
+# (including non-current object versions and delete markers) without manual cleanup.
+# Disable this if you ever care about preventing accidental data loss.
 resource "aws_s3_bucket" "raw" {
-  bucket = "${var.name_prefix}-${var.environment}-raw"
-  tags   = merge(local.base_tags, { Name = "${var.name_prefix}-${var.environment}-raw" })
+  bucket        = "${local.bucket_base}-raw-${local.account_suffix}"
+  force_destroy = var.force_destroy_buckets
+  tags          = merge(local.base_tags, { Name = "${local.bucket_base}-raw-${local.account_suffix}" })
 }
 
 resource "aws_s3_bucket" "processed" {
-  bucket = "${var.name_prefix}-${var.environment}-processed"
-  tags   = merge(local.base_tags, { Name = "${var.name_prefix}-${var.environment}-processed" })
+  bucket        = "${local.bucket_base}-processed-${local.account_suffix}"
+  force_destroy = var.force_destroy_buckets
+  tags          = merge(local.base_tags, { Name = "${local.bucket_base}-processed-${local.account_suffix}" })
 }
 
 resource "aws_s3_bucket" "archive" {
-  bucket = "${var.name_prefix}-${var.environment}-archive"
-  tags   = merge(local.base_tags, { Name = "${var.name_prefix}-${var.environment}-archive" })
+  bucket        = "${local.bucket_base}-archive-${local.account_suffix}"
+  force_destroy = var.force_destroy_buckets
+  tags          = merge(local.base_tags, { Name = "${local.bucket_base}-archive-${local.account_suffix}" })
 }
 
 resource "aws_s3_bucket" "scripts" {
-  bucket = "${var.name_prefix}-${var.environment}-scripts"
-  tags   = merge(local.base_tags, { Name = "${var.name_prefix}-${var.environment}-scripts" })
+  bucket        = "${local.bucket_base}-scripts-${local.account_suffix}"
+  force_destroy = var.force_destroy_buckets
+  tags          = merge(local.base_tags, { Name = "${local.bucket_base}-scripts-${local.account_suffix}" })
 }
 
 resource "aws_s3_bucket_public_access_block" "raw" {
@@ -31,6 +45,14 @@ resource "aws_s3_bucket_public_access_block" "raw" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# Publish S3 Object Created / Deleted events to the default EventBridge bus.
+# Without this, the EventBridge rule that triggers Step Functions never receives
+# any events from this bucket.
+resource "aws_s3_bucket_notification" "raw_eventbridge" {
+  bucket      = aws_s3_bucket.raw.id
+  eventbridge = true
 }
 
 resource "aws_s3_bucket_public_access_block" "processed" {

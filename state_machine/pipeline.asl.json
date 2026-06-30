@@ -42,6 +42,13 @@
         "body.$": "States.StringToJson($.Body)"
       },
       "ResultPath": "$.validation",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
       "Next": "IsValid"
     },
     "IsValid": {

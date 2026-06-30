@@ -1,13 +1,15 @@
+# path.root is the env entrypoint (infra/envs/dev). The lambda source lives at
+# the repo root under lambda/, so we go up three levels: envs/dev -> envs -> infra -> root.
 data "archive_file" "archive_success_zip" {
   type        = "zip"
-  source_file = "${path.root}/../../lambda/archive_success/handler.py"
-  output_path = "${path.root}/../../lambda/archive_success/function.zip"
+  source_file = "${path.root}/../../../lambda/archive_success/handler.py"
+  output_path = "${path.root}/../../../lambda/archive_success/function.zip"
 }
 
 data "archive_file" "archive_failure_zip" {
   type        = "zip"
-  source_file = "${path.root}/../../lambda/archive_failure/handler.py"
-  output_path = "${path.root}/../../lambda/archive_failure/function.zip"
+  source_file = "${path.root}/../../../lambda/archive_failure/handler.py"
+  output_path = "${path.root}/../../../lambda/archive_failure/function.zip"
 }
 
 resource "aws_lambda_function" "archive_success" {
