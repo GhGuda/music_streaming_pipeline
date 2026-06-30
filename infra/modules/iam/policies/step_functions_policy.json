@@ -23,6 +23,17 @@
       ]
     },
     {
+      "Sid": "KmsDecryptForS3",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": [
+        "${kms_key_arn}"
+      ]
+    },
+    {
       "Sid": "Logs",
       "Effect": "Allow",
       "Action": [

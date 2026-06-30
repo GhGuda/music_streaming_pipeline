@@ -7,6 +7,7 @@
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
+        "s3:DeleteObject",
         "s3:ListBucket"
       ],
       "Resource": [
@@ -28,6 +29,18 @@
       ],
       "Resource": [
         "${kms_key_arn}"
+      ]
+    },
+    {
+      "Sid": "DynamoDBWrite",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": [
+        "${dynamodb_table_arn}"
       ]
     },
     {

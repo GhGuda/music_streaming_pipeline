@@ -30,6 +30,19 @@
       ]
     },
     {
+      "Sid": "DynamoDbKpiReadAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "${dynamodb_table_arn}",
+        "${dynamodb_table_arn}/index/*"
+      ]
+    },
+    {
       "Sid": "Logs",
       "Effect": "Allow",
       "Action": [
