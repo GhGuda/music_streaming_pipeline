@@ -238,7 +238,7 @@ Keys:
 | `pk` | String | Partition key. |
 | `sk` | String | Sort key. |
 
-Billing: `PAY_PER_REQUEST`. PITR on. SSE with CMK. Deletion protection on for prod.
+Billing: `PAY_PER_REQUEST`. PITR on. SSE with CMK. (Deletion protection can be flipped on per-environment via a Terraform variable when a prod environment is added later.)
 
 Optional GSI for cross-day genre queries (recommended once base flow is working):
 
@@ -332,7 +332,6 @@ music-streaming-pipeline/
   infra/
     envs/
       dev/    { main.tf, variables.tf, terraform.tfvars, outputs.tf, backend.tf }
-      prod/   { main.tf, variables.tf, terraform.tfvars, outputs.tf, backend.tf }
     modules/
       s3/            { main.tf, variables.tf, outputs.tf }
       kms/           { main.tf, variables.tf, outputs.tf }
@@ -386,7 +385,7 @@ music-streaming-pipeline/
 
 ## 9. Local Prerequisites
 
-- AWS CLI v2, Terraform >= 1.6, Python 3.10+, Git, Docker (for Lambda packaging), an AWS account with admin in dev / least-privilege deploy role in prod.
+- AWS CLI v2, Terraform >= 1.6, Python 3.10+, Git, Docker (for Lambda packaging), an AWS account with sufficient permissions in the dev account.
 
 ```bash
 aws sts get-caller-identity
@@ -878,7 +877,7 @@ resource "aws_dynamodb_table" "kpis" {
   }
 
   point_in_time_recovery { enabled = true }
-  deletion_protection_enabled = var.environment == "prod"
+  deletion_protection_enabled = var.deletion_protection_enabled  # default false; flip true if a prod env is added
 }
 ```
 
@@ -1139,7 +1138,7 @@ def handler(event, _):
 }
 ```
 
-Logging configuration enabled at `ALL` with `include_execution_data = true` to a dedicated `aws_cloudwatch_log_group` retention 30d (dev) / 365d (prod).
+Logging configuration enabled at `ALL` with `include_execution_data = true` to a dedicated `aws_cloudwatch_log_group` (default retention 30d; lengthen per-environment when a prod env is added).
 
 ---
 
@@ -1187,7 +1186,7 @@ Alarm on `ApproximateNumberOfMessagesVisible > 0` for the DLQ.
 
 Resources:
 
-- Log groups: `/aws/vendedlogs/states/<sfn-name>`, `/aws-glue/jobs/output`, `/aws-glue/jobs/error`, `/aws/lambda/<archive-success>`, `/aws/lambda/<archive-failure>`. All retention 30d dev, 365d prod, KMS-encrypted.
+- Log groups: `/aws/vendedlogs/states/<sfn-name>`, `/aws-glue/jobs/output`, `/aws-glue/jobs/error`, `/aws/lambda/<archive-success>`, `/aws/lambda/<archive-failure>`. Default retention 30d, KMS-encrypted (raise the retention variable per-environment if a prod env is added).
 - SNS topic `<prefix>-alerts` with email subscription from `var.alert_email`.
 - Alarms (all `alarm_actions = [aws_sns_topic.alerts.arn]`):
   - Step Functions `ExecutionsFailed >= 1` over 5m.
@@ -1301,7 +1300,7 @@ jobs:
         with: { directory: infra }
 ```
 
-`.github/workflows/cd.yml` on push to `main`: assume an OIDC deploy role, `terraform plan` -> require manual approval -> `terraform apply` for dev. Prod is a separate manually-triggered workflow with its own approval gate.
+`.github/workflows/cd.yml` on push to `main`: assume an OIDC deploy role, run `terraform plan` and quality gates (`tflint`, `checkov`), then `terraform apply` against the dev environment (gated by the GitHub `dev` Environment). If a prod environment is added later, extend the workflow with an additional manually-triggered prod path or split into a separate `cd-prod.yml`.
 
 ---
 
