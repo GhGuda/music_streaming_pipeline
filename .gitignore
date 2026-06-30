@@ -1,5 +1,59 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
+venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Terraform
 .terraform/
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan.binary
+tfplan.txt
+crash.log
+crash.*.log
+# Keep terraform.tfvars committed (it's not secret here); never commit *.auto.tfvars or env-specific overrides.
+*.auto.tfvars
+*.auto.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Lambda packaging (archive_file output)
+lambda/*/function.zip
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local secrets / overrides
+.env
+.env.*
+!.env.example
+
+# AWS credential exports and sandbox key files (never commit)
+sandbox-*.csv
+*_credentials.csv
+*_accessKeys.csv
+
+# Transient validation / debug artifacts
+last-*.json
+
+# Build artefacts
+dist/
+build/
+
+
+#Plan
+docs/plan/
