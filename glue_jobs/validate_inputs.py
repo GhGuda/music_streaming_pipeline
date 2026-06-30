@@ -10,10 +10,50 @@ import argparse
 import csv
 import io
 import json
+import logging
+import sys
+import traceback
 from datetime import datetime
 from typing import Any
 
 import boto3
+
+
+def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+    _log = logging.getLogger(name)
+    _log.setLevel(level)
+    _log.propagate = False
+    if not _log.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        _log.addHandler(handler)
+    return _log
+
+
+def log_event(logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields) -> None:
+    import datetime
+
+    ts = (
+        datetime.datetime.now(datetime.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    payload = {"timestamp": ts, "event": event, **fields}
+    logger.log(level, json.dumps(payload, default=str, sort_keys=True))
+
+
+def log_exception(logger: logging.Logger, event: str, *, exc: BaseException, **fields) -> None:
+    log_event(
+        logger,
+        event,
+        level=logging.ERROR,
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        **fields,
+    )
+
 
 REQUIRED_COLUMNS = {
     "users": ["user_id", "user_name", "user_age", "user_country", "created_at"],
@@ -22,6 +62,7 @@ REQUIRED_COLUMNS = {
 }
 
 s3 = boto3.client("s3")
+logger = configure_logger("validate-inputs")
 
 
 def validate_columns(columns: list[str], dataset_name: str) -> None:
@@ -78,11 +119,21 @@ def build_validation_result(
 
 
 def _head_object(bucket: str, key: str) -> bool:
+    """Return True if the object exists, False on 404."""
+    from botocore.exceptions import ClientError
+
     try:
         s3.head_object(Bucket=bucket, Key=key)
         return True
-    except Exception:
-        return False
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("404", "NoSuchKey", "NotFound") or status == 404:
+            return False
+        raise ValueError(
+            f"head_object failed for s3://{bucket}/{key}: "
+            f"{code or 'Unknown'} (http {status})"
+        ) from exc
 
 
 def _read_csv_rows(bucket: str, key: str) -> list[dict[str, Any]]:
@@ -133,6 +184,16 @@ def main(argv: list[str] | None = None) -> None:
     raw_bucket = event["detail"]["bucket"]["name"]
     stream_key = event["detail"]["object"]["key"]
 
+    log_event(
+        logger,
+        "validation_started",
+        raw_bucket=raw_bucket,
+        stream_key=stream_key,
+        scripts_bucket=scripts_bucket,
+        execution_id=execution_id,
+        result_key=result_key,
+    )
+
     try:
         if not _head_object(raw_bucket, "incoming/users/users.csv"):
             raise FileNotFoundError("users: missing incoming/users/users.csv")
@@ -156,10 +217,37 @@ def main(argv: list[str] | None = None) -> None:
 
         stream_dates = validate_stream_rows(stream_rows)
         result = build_validation_result("VALID", "ok", raw_bucket, stream_key, stream_dates)
+        log_event(
+            logger,
+            "validation_succeeded",
+            raw_bucket=raw_bucket,
+            stream_key=stream_key,
+            execution_id=execution_id,
+            stream_dates=stream_dates,
+            users_rows=len(users_rows),
+            songs_rows=len(songs_rows),
+            stream_rows=len(stream_rows),
+        )
     except Exception as exc:  # noqa: BLE001
         result = build_validation_result("INVALID", str(exc), raw_bucket, stream_key, [])
+        log_exception(
+            logger,
+            "validation_failed",
+            exc=exc,
+            raw_bucket=raw_bucket,
+            stream_key=stream_key,
+            execution_id=execution_id,
+        )
 
     _write_result(scripts_bucket, result_key, result)
+    log_event(
+        logger,
+        "validation_result_written",
+        scripts_bucket=scripts_bucket,
+        result_key=result_key,
+        status=result["status"],
+        stream_dates=result["stream_dates"],
+    )
     print(json.dumps(result))
 
 

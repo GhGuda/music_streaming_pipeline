@@ -2,11 +2,53 @@
 
 import argparse
 import json
+import logging
+import sys
+import traceback
 from collections import defaultdict
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
+
+
+def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+    _log = logging.getLogger(name)
+    _log.setLevel(level)
+    _log.propagate = False
+    if not _log.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        _log.addHandler(handler)
+    return _log
+
+
+def log_event(logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields) -> None:
+    import datetime
+
+    ts = (
+        datetime.datetime.now(datetime.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    payload = {"timestamp": ts, "event": event, **fields}
+    logger.log(level, json.dumps(payload, default=str, sort_keys=True))
+
+
+def log_exception(logger: logging.Logger, event: str, *, exc: BaseException, **fields) -> None:
+    log_event(
+        logger,
+        event,
+        level=logging.ERROR,
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        traceback="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        **fields,
+    )
+
+
+logger = configure_logger("compute-kpis")
 
 
 def enrich_streams_with_songs(streams_df: DataFrame, songs_df: DataFrame) -> DataFrame:
@@ -23,6 +65,9 @@ def enrich_streams_with_songs(streams_df: DataFrame, songs_df: DataFrame) -> Dat
         "artists",
         F.col("track_genre").alias("genre"),
         (F.col("duration_ms").cast("double") / F.lit(1000.0)).alias("effective_listen_seconds"),
+    ).filter(
+        # Drop rows where genre is a bare number (CSV column-shift artefact).
+        F.col("genre").isNotNull() & ~F.col("genre").rlike(r"^-?\d+(\.\d+)?$")
     )
 
     return streams.join(songs, on="track_id", how="inner")
@@ -35,7 +80,9 @@ def compute_daily_genre_kpis(enriched_df: DataFrame) -> DataFrame:
         .agg(
             F.count("*").alias("listen_count"),
             F.countDistinct("user_id").alias("unique_listeners"),
-            F.sum("effective_listen_seconds").alias("total_listening_time_seconds"),
+            F.coalesce(F.sum("effective_listen_seconds"), F.lit(0.0)).alias(
+                "total_listening_time_seconds"
+            ),
         )
         .withColumn(
             "avg_listening_time_per_user_seconds",
@@ -188,6 +235,36 @@ def _parse_args(argv: list[str]) -> dict[str, str]:
         return vars(ns)
 
 
+def _silver_path(processed_bucket: str) -> str:
+    return f"s3://{processed_bucket}/silver/streams_enriched/"
+
+
+def _read_existing_silver_for_dates(
+    spark: SparkSession, processed_bucket: str, stream_dates: list[str]
+) -> DataFrame | None:
+    """Read previously-written enriched data for the same dates, if any.
+
+    Returns None on the first run (no silver Parquet has been written yet) or
+    if no partitions for the requested dates exist.
+    """
+    if not stream_dates:
+        return None
+
+    try:
+        df = (
+            spark.read.option("basePath", _silver_path(processed_bucket))
+            .parquet(_silver_path(processed_bucket))
+            .filter(F.col("stream_date").isin(stream_dates))
+        )
+        # Touch the catalyst optimiser to force path validation. If the path
+        # doesn't exist, AnalysisException is raised here rather than later.
+        _ = df.schema  # noqa: F841
+        return df
+    except Exception:
+        # First run, or none of the requested partitions exist yet.
+        return None
+
+
 def main(argv: list[str] | None = None) -> None:
     import sys
 
@@ -197,45 +274,104 @@ def main(argv: list[str] | None = None) -> None:
     stream_key = args["stream_key"]
     stream_dates: list[str] = json.loads(args["stream_dates"])
 
+    log_event(
+        logger,
+        "compute_started",
+        raw_bucket=raw_bucket,
+        processed_bucket=processed_bucket,
+        stream_key=stream_key,
+        stream_dates=stream_dates,
+    )
+
     spark = SparkSession.builder.appName("compute-kpis").getOrCreate()
-    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+    try:
+        # Critical: only overwrite the partitions we're writing to. Without this,
+        # mode("overwrite") would wipe every existing partition.
+        spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
-    streams_path = f"s3://{raw_bucket}/{stream_key}"
-    songs_path = f"s3://{raw_bucket}/incoming/songs/songs.csv"
+        streams_path = f"s3://{raw_bucket}/{stream_key}"
+        songs_path = f"s3://{raw_bucket}/incoming/songs/songs.csv"
 
-    streams_df = spark.read.option("header", "true").csv(streams_path)
-    songs_df = spark.read.option("header", "true").csv(songs_path)
+        # 1. Enrich the NEW stream file (the trigger).
+        new_streams = spark.read.option("header", "true").csv(streams_path)
+        songs_df = spark.read.option("header", "true").csv(songs_path)
+        new_enriched = enrich_streams_with_songs(new_streams, songs_df)
+        if stream_dates:
+            new_enriched = new_enriched.filter(F.col("stream_date").isin(stream_dates))
 
-    enriched = enrich_streams_with_songs(streams_df, songs_df)
-    if stream_dates:
-        enriched = enriched.filter(F.col("stream_date").isin(stream_dates))
+        # 2. Aggregate-on-read: union with the EXISTING silver for the same dates,
+        #    if any. This makes the pipeline accumulate across multiple stream
+        #    files arriving for the same day (instead of last-write-wins).
+        existing = _read_existing_silver_for_dates(spark, processed_bucket, stream_dates)
 
-    daily = compute_daily_genre_kpis(enriched)
-    top_songs = compute_top_3_songs_by_genre(enriched)
-    top_genres = compute_top_5_genres(enriched)
+        if existing is not None:
+            # Materialize existing silver into Spark cache BEFORE the write step.
+            # partitionOverwriteMode=dynamic deletes source partition files during
+            # job commit; tasks still reading from a lazy `existing` DataFrame see
+            # "File not present on S3" when their source files disappear mid-run.
+            # .cache() + .count() forces a full read into memory first.
+            existing.cache()
+            existing.count()
+            # Align columns so union behaves deterministically across schema-evolution.
+            cols = new_enriched.columns
+            existing_aligned = existing.select(*cols)
+            combined = new_enriched.unionByName(existing_aligned, allowMissingColumns=False)
+        else:
+            combined = new_enriched
 
-    (
-        enriched.write.mode("overwrite")
-        .partitionBy("stream_date")
-        .parquet(f"s3://{processed_bucket}/silver/streams_enriched/")
-    )
-    (
-        daily.write.mode("overwrite")
-        .partitionBy("stream_date")
-        .parquet(f"s3://{processed_bucket}/gold/daily_genre_kpis/")
-    )
-    (
-        top_songs.write.mode("overwrite")
-        .partitionBy("stream_date")
-        .parquet(f"s3://{processed_bucket}/gold/top_songs_by_genre/")
-    )
-    (
-        top_genres.write.mode("overwrite")
-        .partitionBy("stream_date")
-        .parquet(f"s3://{processed_bucket}/gold/top_genres/")
-    )
+        # 3. Dedup on the natural event key. Re-uploading the same file or
+        #    overlapping uploads for the same (user, track, time) collapse to one.
+        enriched = combined.dropDuplicates(["user_id", "track_id", "listen_time"])
 
-    spark.stop()
+        # 4. Re-aggregate KPIs from the FULL set of events for the touched dates.
+        daily = compute_daily_genre_kpis(enriched)
+        top_songs = compute_top_3_songs_by_genre(enriched)
+        top_genres = compute_top_5_genres(enriched)
+
+        # 5. Write back. partitionOverwriteMode=dynamic ensures only the touched
+        #    date partitions are replaced; older dates are left alone.
+        (
+            enriched.write.mode("overwrite")
+            .partitionBy("stream_date")
+            .parquet(_silver_path(processed_bucket))
+        )
+        (
+            daily.write.mode("overwrite")
+            .partitionBy("stream_date")
+            .parquet(f"s3://{processed_bucket}/gold/daily_genre_kpis/")
+        )
+        (
+            top_songs.write.mode("overwrite")
+            .partitionBy("stream_date")
+            .parquet(f"s3://{processed_bucket}/gold/top_songs_by_genre/")
+        )
+        (
+            top_genres.write.mode("overwrite")
+            .partitionBy("stream_date")
+            .parquet(f"s3://{processed_bucket}/gold/top_genres/")
+        )
+
+        log_event(
+            logger,
+            "compute_succeeded",
+            processed_bucket=processed_bucket,
+            stream_key=stream_key,
+            stream_dates=stream_dates,
+            used_existing_silver=existing is not None,
+        )
+    except Exception as exc:
+        log_exception(
+            logger,
+            "compute_failed",
+            exc=exc,
+            raw_bucket=raw_bucket,
+            processed_bucket=processed_bucket,
+            stream_key=stream_key,
+            stream_dates=stream_dates,
+        )
+        raise
+    finally:
+        spark.stop()
 
 
 if __name__ == "__main__":
