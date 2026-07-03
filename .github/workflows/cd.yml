@@ -1,8 +1,221 @@
 name: cd
+
+# Continuous deployment to the dev AWS environment.
+#   - push to main (paths-filtered) -> auto-deploy
+#   - workflow_dispatch              -> manual deploy
+#
+# One-time GitHub setup (Settings -> Environments):
+#   "dev" environment:
+#     - Branch restriction: main only.
+#     - Required reviewers: optional (set if you want a human in the loop).
+#     - Environment secret: AWS_ROLE_ARN_DEV  = arn:aws:iam::<acct>:role/<oidc-role>
+#     - Environment variable: ALERT_EMAIL    = <address for SNS subscription>
+#
+# The IAM role above must trust the GitHub OIDC provider and be scoped to this
+# repo (see README "One-time GitHub setup" for the trust policy template).
+
 on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "state_machine/**"
+      - "glue_jobs/**"
+      - "lambda/**"
+      - ".github/workflows/cd.yml"
   workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.9.8"
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+  TF_DIR: infra/envs/dev
+  AWS_REGION: us-east-1
+
+# Never run two CD pipelines simultaneously — Terraform state would race.
+concurrency:
+  group: cd-dev
+  cancel-in-progress: false
+
 jobs:
-  placeholder:
+  # ---------------------------------------------------------------
+  # 1. Quality gates + plan.
+  # ---------------------------------------------------------------
+  quality:
+    name: Quality + Plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - run: echo "TODO: implement CD"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          role-session-name: gha-cd-dev-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform fmt -check
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform fmt -check -recursive ../..
+
+      - name: terraform init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: terraform validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+      - name: tflint
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          tflint --init
+          tflint --recursive --chdir=../../
+
+      - name: Checkov (IaC security scan)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra
+          quiet: true
+          # Start lenient: surface findings as code-scanning alerts but don't
+          # block deploys. Tighten once the backlog is clean.
+          soft_fail: true
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov.sarif
+
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+        # -detailed-exitcode: 0=no changes, 1=error, 2=changes pending.
+        # We treat 2 as success — that's the whole point of a plan.
+        run: |
+          set +e
+          terraform plan -no-color -lock-timeout=5m \
+            -out=tfplan.binary \
+            -var "alert_email=${ALERT_EMAIL:-alerts@example.com}"
+          ec=$?
+          set -e
+          if [ "$ec" = "1" ]; then exit 1; fi
+          terraform show -no-color tfplan.binary > tfplan.txt
+
+      - name: Summarise plan
+        if: always()
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          {
+            echo "## terraform plan (dev)"
+            echo ""
+            echo '```hcl'
+            head -c 80000 tfplan.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev-${{ github.run_id }}
+          path: |
+            ${{ env.TF_DIR }}/tfplan.binary
+            ${{ env.TF_DIR }}/tfplan.txt
+            ${{ env.TF_DIR }}/.terraform.lock.hcl
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------
+  # 2. Apply. Gated by the GitHub "dev" Environment.
+  # ---------------------------------------------------------------
+  apply:
+    name: Apply (dev)
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: dev
+      url: https://console.aws.amazon.com/states/home?region=us-east-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          role-session-name: gha-cd-dev-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev-${{ github.run_id }}
+          path: ${{ env.TF_DIR }}
+
+      - name: terraform init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: terraform apply tfplan.binary
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -no-color -lock-timeout=10m -auto-approve tfplan.binary
+
+      - name: Capture outputs
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform output -json | tee tf-outputs.json
+
+      - name: Summarise apply
+        if: always()
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          {
+            echo "## terraform apply (dev)"
+            echo ""
+            echo '```json'
+            jq '.' tf-outputs.json 2>/dev/null || cat tf-outputs.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload apply artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfapply-dev-${{ github.run_id }}
+          path: |
+            ${{ env.TF_DIR }}/tf-outputs.json
+          retention-days: 30
+          if-no-files-found: warn

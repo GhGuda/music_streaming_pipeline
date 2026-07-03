@@ -6,7 +6,7 @@ Create the project structure exactly as defined in `docs/plan/music_streaming_pi
 ### Implementation Changes
 1. Establish the root layout under the current repo:
    - `.github/workflows/`
-   - `infra/envs/dev`, `infra/envs/prod`
+   - `infra/envs/dev`
    - `infra/modules/{s3,kms,iam,dynamodb,glue,lambda,step_functions,eventbridge,monitoring}`
    - `state_machine/`
    - `glue_jobs/common/`
@@ -28,7 +28,6 @@ Create the project structure exactly as defined in `docs/plan/music_streaming_pi
 
 3. Add Terraform module/env placeholders:
    - `infra/envs/dev/{main.tf,variables.tf,terraform.tfvars,outputs.tf,backend.tf}`
-   - `infra/envs/prod/{main.tf,variables.tf,terraform.tfvars,outputs.tf,backend.tf}`
    - For each module in `infra/modules/*`: `main.tf`, `variables.tf`, `outputs.tf`
    - IAM module additional policy directory: `infra/modules/iam/policies/` with placeholder policy JSON files.
 

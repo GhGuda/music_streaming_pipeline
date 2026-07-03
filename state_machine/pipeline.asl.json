@@ -1,7 +1,174 @@
 {
-  "Comment": "TODO: implement pipeline state machine",
-  "StartAt": "Placeholder",
+  "Comment": "Music streaming ETL pipeline",
+  "StartAt": "ValidateInputFiles",
   "States": {
-    "Placeholder": { "Type": "Succeed" }
+    "ValidateInputFiles": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${validate_job_name}",
+        "Arguments": {
+          "--event.$": "States.JsonToString($)",
+          "--scripts_bucket": "${scripts_bucket}",
+          "--execution_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultPath": "$.validateRun",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException", "Glue.AWSGlueException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
+      "Next": "GetValidationResult"
+    },
+    "GetValidationResult": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Parameters": {
+        "Bucket": "${scripts_bucket}",
+        "Key.$": "States.Format('validation_results/{}.json', $$.Execution.Name)"
+      },
+      "ResultSelector": {
+        "body.$": "States.StringToJson($.Body)"
+      },
+      "ResultPath": "$.validation",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
+      "Next": "IsValid"
+    },
+    "IsValid": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.validation.body.status",
+          "StringEquals": "VALID",
+          "Next": "ComputeKPIs"
+        }
+      ],
+      "Default": "MoveToFailed"
+    },
+    "ComputeKPIs": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${compute_job_name}",
+        "Arguments": {
+          "--raw_bucket": "${raw_bucket}",
+          "--processed_bucket": "${processed_bucket}",
+          "--stream_key.$": "$.validation.body.stream_key",
+          "--stream_dates.$": "States.JsonToString($.validation.body.stream_dates)"
+        }
+      },
+      "ResultPath": "$.computeRun",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
+      "Next": "LoadDynamoDB"
+    },
+    "LoadDynamoDB": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${load_job_name}",
+        "Arguments": {
+          "--processed_bucket": "${processed_bucket}",
+          "--dynamodb_table": "${dynamodb_table}",
+          "--stream_dates.$": "States.JsonToString($.validation.body.stream_dates)"
+        }
+      },
+      "ResultPath": "$.loadRun",
+      "Retry": [
+        {
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException", "ProvisionedThroughputExceededException"],
+          "IntervalSeconds": 15,
+          "MaxAttempts": 5,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
+      "Next": "ArchiveSuccess"
+    },
+    "ArchiveSuccess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${archive_success_arn}",
+        "Payload": {
+          "raw_bucket.$": "$.validation.body.raw_bucket",
+          "stream_key.$": "$.validation.body.stream_key"
+        }
+      },
+      "ResultPath": "$.archiveResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MoveToFailed"
+        }
+      ],
+      "Next": "Success"
+    },
+    "MoveToFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${archive_failure_arn}",
+        "Payload": {
+          "raw_bucket.$": "$.detail.bucket.name",
+          "stream_key.$": "$.detail.object.key",
+          "error.$": "$"
+        }
+      },
+      "ResultPath": "$.failureArchiveResult",
+      "Next": "FailPipeline"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "FailPipeline": {
+      "Type": "Fail",
+      "Cause": "Music streaming pipeline failed"
+    }
   }
 }

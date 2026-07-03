@@ -1,1 +1,6 @@
-# TODO: dev tfvars
+aws_region   = "eu-north-1"
+project_name = "music-streaming"
+environment  = "dev"
+owner        = "Melchizedek Narh"
+cost_center  = "data-engineering"
+alert_email  = "melchizedek.narh@amalitech.com"
