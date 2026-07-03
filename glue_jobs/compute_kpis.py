@@ -67,7 +67,8 @@ def enrich_streams_with_songs(streams_df: DataFrame, songs_df: DataFrame) -> Dat
         (F.col("duration_ms").cast("double") / F.lit(1000.0)).alias("effective_listen_seconds"),
     ).filter(
         # Drop rows where genre is a bare number (CSV column-shift artefact).
-        F.col("genre").isNotNull() & ~F.col("genre").rlike(r"^-?\d+(\.\d+)?$")
+        F.col("genre").isNotNull()
+        & ~F.col("genre").rlike(r"^-?\d+(\.\d+)?$")
     )
 
     return streams.join(songs, on="track_id", how="inner")

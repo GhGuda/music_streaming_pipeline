@@ -61,9 +61,12 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, str]:
     # If the source already moved (e.g. a parallel execution beat us), skip the copy.
     if not _source_exists(src_bucket, src_key):
         log.info(
-            'archive_failure: source already absent, error_json only'
-            ' src=s3://%s/%s dst=s3://%s/%s',
-            src_bucket, src_key, archive_bucket, dst_key,
+            "archive_failure: source already absent, error_json only"
+            " src=s3://%s/%s dst=s3://%s/%s",
+            src_bucket,
+            src_key,
+            archive_bucket,
+            dst_key,
         )
         return {
             "archived_to": f"s3://{archive_bucket}/{dst_key}",
@@ -79,8 +82,11 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, str]:
     )
     s3.delete_object(Bucket=src_bucket, Key=src_key)
     log.info(
-        'archive_failure: moved src=s3://%s/%s dst=s3://%s/%s',
-        src_bucket, src_key, archive_bucket, dst_key,
+        "archive_failure: moved src=s3://%s/%s dst=s3://%s/%s",
+        src_bucket,
+        src_key,
+        archive_bucket,
+        dst_key,
     )
 
     return {

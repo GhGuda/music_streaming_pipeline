@@ -131,8 +131,7 @@ def _head_object(bucket: str, key: str) -> bool:
         if code in ("404", "NoSuchKey", "NotFound") or status == 404:
             return False
         raise ValueError(
-            f"head_object failed for s3://{bucket}/{key}: "
-            f"{code or 'Unknown'} (http {status})"
+            f"head_object failed for s3://{bucket}/{key}: " f"{code or 'Unknown'} (http {status})"
         ) from exc
 
 
